@@ -1,14 +1,19 @@
-import jsan, { Options } from 'jsan';
-import throttle from 'lodash/throttle';
-import { immutableSerialize } from '@redux-devtools/serialize';
-import { getActionsArray, getLocalFilter } from '@redux-devtools/utils';
+import type { Options } from 'jsan';
+// import throttle from 'lodash/throttle';
+import type { AnyAction } from 'redux';
+// import { immutableSerialize } from '@redux-devtools/serialize';
+import type {
+  // getActionsArray,
+  // getLocalFilter,
+  LocalFilter,
+} from '@redux-devtools/utils';
 import { isFiltered, PartialLiftedState } from './filters';
-import importState from './importState';
+// import importState from './importState';
 import generateId from './generateInstanceId';
 import type { Config } from '../index';
-import { Action } from 'redux';
-import { LiftedState, PerformAction } from '@redux-devtools/instrument';
-import { LibConfig } from '@redux-devtools/app';
+import type { Action } from 'redux';
+import type { LiftedState, PerformAction } from '@redux-devtools/instrument';
+import type { LibConfig } from '@redux-devtools/app';
 import type {
   ContentScriptToPageScriptMessage,
   ListenerMessage,
@@ -22,6 +27,23 @@ const listeners: {
 } = {};
 export const source = '@devtools-page';
 
+function isArray(arg: unknown): arg is readonly unknown[] {
+  return Array.isArray(arg);
+}
+
+export function getLocalFilter(config: Config): LocalFilter | undefined {
+  const denylist = config.actionsDenylist ?? config.actionsBlacklist;
+  const allowlist = config.actionsAllowlist ?? config.actionsWhitelist;
+  if (denylist || allowlist) {
+    return {
+      allowlist: isArray(allowlist) ? allowlist.join('|') : allowlist,
+      denylist: isArray(denylist) ? denylist.join('|') : denylist,
+    };
+  }
+  return undefined;
+}
+
+/*
 function windowReplacer(key: string, value: unknown) {
   if (value && (value as Window).window === value) {
     return '[WINDOW]';
@@ -33,11 +55,9 @@ function tryCatchStringify(obj: unknown) {
   try {
     return JSON.stringify(obj);
   } catch (err) {
-    /* eslint-disable no-console */
     if (process.env.NODE_ENV !== 'production') {
       console.log('Failed to stringify', err);
     }
-    /* eslint-enable no-console */
     return jsan.stringify(obj, windowReplacer, undefined, {
       circular: '[CIRCULAR]',
       date: true,
@@ -53,17 +73,15 @@ function stringify(obj: unknown, serialize?: Serialize | undefined) {
       : jsan.stringify(obj, serialize.replacer, undefined, serialize.options);
 
   if (!stringifyWarned && str && str.length > 16 * 1024 * 1024) {
-    // 16 MB
-    /* eslint-disable no-console */
     console.warn(
       'Application state or actions payloads are too large making Redux DevTools serialization slow and consuming a lot of memory. See https://github.com/reduxjs/redux-devtools-extension/blob/master/docs/Troubleshooting.md#excessive-use-of-memory-and-cpu on how to configure it.'
     );
-    /* eslint-enable no-console */
     stringifyWarned = true;
   }
 
   return str;
 }
+*/
 
 export interface Serialize {
   readonly replacer?: (key: string, value: unknown) => unknown;
@@ -71,6 +89,7 @@ export interface Serialize {
   readonly options?: Options | boolean;
 }
 
+/*
 export function getSerializeParameter(config: Config) {
   const serialize = config.serialize;
   if (serialize) {
@@ -103,6 +122,7 @@ export function getSerializeParameter(config: Config) {
 
   return undefined;
 }
+*/
 
 interface InitInstancePageScriptToContentScriptMessage {
   readonly type: 'INIT_INSTANCE';
@@ -380,6 +400,7 @@ type ToContentScriptMessage<S, A extends Action<unknown>> =
   | GetReportMessage
   | StopMessage;
 
+/*
 export function toContentScript<S, A extends Action<unknown>>(
   message: ToContentScriptMessage<S, A>,
   serializeState?: Serialize | undefined,
@@ -424,7 +445,56 @@ export function toContentScript<S, A extends Action<unknown>>(
     post(message);
   }
 }
+*/
 
+export type ExtractedExtensionConfig = Pick<
+  Config,
+  'stateSanitizer' | 'actionSanitizer' | 'predicate'
+> & {
+  // serializeState: Serializer;
+  // serializeAction: Serializer;
+  instanceId: number;
+  isFiltered: typeof isFiltered;
+  localFilter: LocalFilter | undefined;
+};
+
+export interface LastSavedValues {
+  action: string | AnyAction;
+  state: any;
+  extractedConfig: ExtractedExtensionConfig;
+  config: Config;
+}
+
+let latestDispatchedActions: Record<string, LastSavedValues> = {};
+
+export function saveReplayAnnotation(
+  action: AnyAction,
+  state: any,
+  connectionType: 'redux' | 'generic',
+  extractedConfig: ExtractedExtensionConfig,
+  config: Config
+) {
+  const { instanceId } = extractedConfig;
+
+  window.__RECORD_REPLAY_ANNOTATION_HOOK__(
+    'redux-devtools-setup',
+    JSON.stringify({
+      type: 'init',
+      actionType: action.type,
+      connectionType,
+      instanceId,
+    })
+  );
+
+  latestDispatchedActions[instanceId] = {
+    action,
+    state,
+    extractedConfig,
+    config,
+  };
+}
+
+/*
 export function sendMessage<S, A extends Action<unknown>>(
   action: StructuralPerformAction<A> | StructuralPerformAction<A>[],
   state: LiftedState<S, A, unknown>,
@@ -468,7 +538,9 @@ export function sendMessage<S, A extends Action<unknown>>(
     );
   }
 }
+*/
 
+/*
 function handleMessages(event: MessageEvent<ContentScriptToPageScriptMessage>) {
   if (process.env.BABEL_ENV !== 'test' && (!event || event.source !== window)) {
     return;
@@ -487,6 +559,7 @@ function handleMessages(event: MessageEvent<ContentScriptToPageScriptMessage>) {
   });
 }
 
+
 export function setListener(
   onMessage: (message: ContentScriptToPageScriptMessage) => void,
   instanceId: number
@@ -494,7 +567,9 @@ export function setListener(
   listeners[instanceId] = onMessage;
   window.addEventListener('message', handleMessages, false);
 }
+*/
 
+/*
 const liftListener =
   <S, A extends Action<unknown>>(
     listener: (message: ListenerMessage<S, A>) => void,
@@ -514,10 +589,12 @@ const liftListener =
     }
   };
 
+
 export function disconnect() {
   window.removeEventListener('message', handleMessages);
   post({ type: 'DISCONNECT', source });
 }
+*/
 
 export interface ConnectResponse {
   init: <S, A extends Action<unknown>>(
@@ -537,22 +614,37 @@ export interface ConnectResponse {
 
 export function connect(preConfig: Config): ConnectResponse {
   const config = preConfig || {};
-  const id = generateId(config.instanceId);
-  if (!config.instanceId) config.instanceId = id;
+  const instanceId = generateId(config.instanceId);
+  if (!config.instanceId) config.instanceId = instanceId;
   if (!config.name) {
     config.name =
-      document.title && id === 1 ? document.title : `Instance ${id}`;
+      document.title && instanceId === 1
+        ? document.title
+        : `Instance ${instanceId}`;
   }
-  if (config.serialize) config.serialize = getSerializeParameter(config);
-  const actionCreators = config.actionCreators || {};
-  const latency = config.latency;
-  const predicate = config.predicate;
+  // if (config.serialize) config.serialize = getSerializeParameter(config);
+  // const actionCreators = config.actionCreators || {};
+  // const latency = config.latency;
   const localFilter = getLocalFilter(config);
   const autoPause = config.autoPause;
   let isPaused = autoPause;
-  let delayedActions: StructuralPerformAction<Action<unknown>>[] = [];
-  let delayedStates: LiftedState<unknown, Action<unknown>, unknown>[] = [];
+  // let delayedActions: StructuralPerformAction<Action<unknown>>[] = [];
+  // let delayedStates: LiftedState<unknown, Action<unknown>, unknown>[] = [];
 
+  let { stateSanitizer, actionSanitizer, predicate } = config;
+
+  const extractedExtensionConfig: ExtractedExtensionConfig = {
+    instanceId: instanceId,
+    // serializeState,
+    // serializeAction,
+    stateSanitizer,
+    actionSanitizer,
+    predicate,
+    localFilter,
+    isFiltered,
+  };
+
+  /*
   const rootListener = (action: ContentScriptToPageScriptMessage) => {
     if (autoPause) {
       if (action.type === 'START') isPaused = false;
@@ -573,37 +665,68 @@ export function connect(preConfig: Config): ConnectResponse {
   };
 
   listeners[id] = [rootListener];
+  */
 
   const subscribe = <S, A extends Action<unknown>>(
     listener: (message: ListenerMessage<S, A>) => void
   ) => {
     if (!listener) return undefined;
-    const liftedListener = liftListener(listener, config);
-    const listenersForId = listeners[id] as ((
-      message: ContentScriptToPageScriptMessage
-    ) => void)[];
-    listenersForId.push(liftedListener);
+    // const liftedListener = liftListener(listener, config);
+    // const listenersForId = listeners[id] as ((
+    //   message: ContentScriptToPageScriptMessage
+    // ) => void)[];
+    // listenersForId.push(liftedListener);
 
     return function unsubscribe() {
-      const index = listenersForId.indexOf(liftedListener);
-      listenersForId.splice(index, 1);
+      // const index = listenersForId.indexOf(liftedListener);
+      // listenersForId.splice(index, 1);
     };
   };
 
   const unsubscribe = () => {
-    delete listeners[id];
+    delete listeners[instanceId];
   };
 
-  const sendDelayed = throttle(() => {
-    sendMessage(delayedActions, delayedStates as any, config);
-    delayedActions = [];
-    delayedStates = [];
-  }, latency);
+  // const sendDelayed = throttle(() => {
+  //   sendMessage(delayedActions, delayedStates as any, config);
+  //   delayedActions = [];
+  //   delayedStates = [];
+  // }, latency);
 
   const send = <S, A extends Action<unknown>>(
     action: A,
     state: LiftedState<S, A, unknown>
   ) => {
+    if (!action) {
+      return;
+    }
+
+    let amendedAction: AnyAction = action;
+
+    if (typeof action === 'string') {
+      amendedAction = { type: action };
+    }
+    // if (config.getActionType) {
+    //   amendedAction = config.getActionType(action);
+    //   if (typeof amendedAction !== 'object') {
+    //     amendedAction = {
+    //       action: { type: amendedAction },
+    //       timestamp: Date.now(),
+    //     } as unknown as A;
+    //   }
+    // }
+    // amendedAction = amendActionType(amendedAction, config, send);
+
+    saveReplayAnnotation(
+      amendedAction,
+      state,
+      'generic',
+      extractedExtensionConfig,
+      config
+    );
+    return;
+
+    /*
     if (
       isPaused ||
       isFiltered(action, localFilter) ||
@@ -641,16 +764,23 @@ export function connect(preConfig: Config): ConnectResponse {
       amendedState,
       config
     );
+    */
   };
 
   const init = <S, A extends Action<unknown>>(
     state: S,
     liftedData?: LiftedState<S, A, unknown>
   ) => {
+    window.__RECORD_REPLAY_ANNOTATION_HOOK__(
+      'redux-devtools-setup',
+      JSON.stringify({ type: 'init', connectionType: 'generic', instanceId })
+    );
+
+    /*
     const message: InitMessage<S, A> = {
       type: 'INIT',
       payload: stringify(state, config.serialize as Serialize | undefined),
-      instanceId: id,
+      instanceId: instanceId,
       source,
     };
     if (liftedData && Array.isArray(liftedData)) {
@@ -671,15 +801,16 @@ export function connect(preConfig: Config): ConnectResponse {
       };
     }
     post(message);
+    */
   };
 
   const error = (payload: string) => {
-    post({ type: 'ERROR', payload, instanceId: id, source });
+    post({ type: 'ERROR', payload, instanceId: instanceId, source });
   };
 
-  window.addEventListener('message', handleMessages, false);
+  // window.addEventListener('message', handleMessages, false);
 
-  post({ type: 'INIT_INSTANCE', instanceId: id, source });
+  // post({ type: 'INIT_INSTANCE', instanceId: instanceId, source });
 
   return {
     init,

@@ -1,11 +1,7 @@
-import {
-  ActionCreatorObject,
-  evalAction,
-  getActionsArray,
-  getLocalFilter,
-} from '@redux-devtools/utils';
-import throttle from 'lodash/throttle';
-import {
+import type { ActionCreatorObject } from '@redux-devtools/utils';
+import type { AnyAction, Store } from 'redux';
+// import throttle from 'lodash/throttle';
+import type {
   Action,
   ActionCreator,
   Dispatch,
@@ -14,59 +10,59 @@ import {
   StoreEnhancer,
   StoreEnhancerStoreCreator,
 } from 'redux';
-import Immutable from 'immutable';
-import {
+import type Immutable from 'immutable';
+import type {
   EnhancedStore,
   LiftedAction,
   LiftedState,
   PerformAction,
 } from '@redux-devtools/instrument';
-import {
+import type {
   CustomAction,
   DispatchAction,
   LibConfig,
   Features,
 } from '@redux-devtools/app';
-import configureStore, { getUrlParam } from './enhancerStore';
-import { isAllowed, Options } from '../options/syncOptions';
-import Monitor from './Monitor';
-import {
-  noFiltersApplied,
-  isFiltered,
-  filterState,
-  startingFrom,
-} from './api/filters';
+// import configureStore, { getUrlParam } from './enhancerStore';
+import type { Options } from '../options/syncOptions';
+import { isFiltered } from './api/filters';
+// import Monitor from './Monitor';
+// import {
+//   noFiltersApplied,
+//   isFiltered,
+//   filterState,
+//   startingFrom,
+// } from './api/filters';
 import notifyErrors from './api/notifyErrors';
-import importState from './api/importState';
-import openWindow, { Position } from './api/openWindow';
+//import importState from './api/importState';
+// import openWindow, { Position } from './api/openWindow';
 import generateId from './api/generateInstanceId';
 import {
-  toContentScript,
-  sendMessage,
-  setListener,
-  connect,
-  disconnect,
-  isInIframe,
-  getSerializeParameter,
+  // toContentScript,
+  // sendMessage,
+  // setListener,
+  // connect,
+  //  disconnect,
+  // isInIframe,
+  // getSerializeParameter,
+  getLocalFilter,
+  saveReplayAnnotation,
   Serialize,
   StructuralPerformAction,
   ConnectResponse,
+  ExtractedExtensionConfig,
 } from './api';
 import type { ContentScriptToPageScriptMessage } from '../contentScript';
 
-type EnhancedStoreWithInitialDispatch<
-  S,
-  A extends Action<unknown>,
-  MonitorState
-> = EnhancedStore<S, A, MonitorState> & { initialDispatch: Dispatch<A> };
+// type EnhancedStoreWithInitialDispatch<
+//   S,
+//   A extends Action<unknown>,
+//   MonitorState
+// > = EnhancedStore<S, A, MonitorState> & { initialDispatch: Dispatch<A> };
 
 const source = '@devtools-page';
 let stores: {
-  [K in string | number]: EnhancedStoreWithInitialDispatch<
-    unknown,
-    Action<unknown>,
-    unknown
-  >;
+  [K in string | number]: Store;
 } = {};
 let reportId: string | null | undefined;
 
@@ -135,7 +131,7 @@ export interface Config extends ConfigWithExpandedMaxAge {
 
 interface ReduxDevtoolsExtension {
   (config?: Config): StoreEnhancer;
-  open: (position?: Position) => void;
+  open: () => void;
   notifyErrors: (onError?: () => boolean) => void;
   send: <S, A extends Action<unknown>>(
     action: StructuralPerformAction<A> | StructuralPerformAction<A>[],
@@ -155,8 +151,21 @@ interface ReduxDevtoolsExtension {
 declare global {
   interface Window {
     devToolsOptions: Options;
+    __REDUX_DEVTOOLS_ANNOTATE_ACTION: (action: any, state: any) => void;
+    __RECORD_REPLAY_ANNOTATION_HOOK__: (kind: string, contents: string) => void;
   }
 }
+
+// type Serializer = ReturnType<typeof getSerializeParameter>;
+
+const toReg = (str: string) =>
+  str !== '' ? str.split('\n').filter(Boolean).join('|') : null;
+
+export const isAllowed = (localOptions: Options) =>
+  !localOptions ||
+  localOptions.inject ||
+  !localOptions.urls ||
+  location.href.match(toReg(localOptions.urls)!);
 
 function __REDUX_DEVTOOLS_EXTENSION__<S, A extends Action<unknown>>(
   config?: Config
@@ -166,32 +175,44 @@ function __REDUX_DEVTOOLS_EXTENSION__<S, A extends Action<unknown>>(
   /* eslint-enable no-param-reassign */
   if (!window.devToolsOptions) window.devToolsOptions = {} as any;
 
-  let store: EnhancedStoreWithInitialDispatch<S, A, unknown>;
+  let store: Store<any, AnyAction>;
   let errorOccurred = false;
   let maxAge: number | undefined;
   let actionCreators: readonly ActionCreatorObject[];
   let sendingActionId = 1;
   const instanceId = generateId(config.instanceId);
   const localFilter = getLocalFilter(config);
-  const serializeState = getSerializeParameter(config);
-  const serializeAction = getSerializeParameter(config);
+  // const serializeState = getSerializeParameter(config);
+  // const serializeAction = getSerializeParameter(config);
   let { stateSanitizer, actionSanitizer, predicate, latency = 500 } = config;
 
-  // Deprecate actionsWhitelist and actionsBlacklist
-  if (config.actionsWhitelist) {
-    deprecateParam('actionsWhiteList', 'actionsAllowlist');
-  }
-  if (config.actionsBlacklist) {
-    deprecateParam('actionsBlacklist', 'actionsDenylist');
-  }
+  const extractedExtensionConfig: ExtractedExtensionConfig = {
+    instanceId,
+    // serializeState,
+    // serializeAction,
+    stateSanitizer,
+    actionSanitizer,
+    predicate,
+    localFilter,
+    isFiltered,
+  };
 
+  // Deprecate actionsWhitelist and actionsBlacklist
+  // if (config.actionsWhitelist) {
+  //   deprecateParam('actionsWhiteList', 'actionsAllowlist');
+  // }
+  // if (config.actionsBlacklist) {
+  //   deprecateParam('actionsBlacklist', 'actionsDenylist');
+  // }
+
+  /*
   const relayState = throttle(
     (
       liftedState?: LiftedState<S, A, unknown> | undefined,
       libConfig?: LibConfig
     ) => {
       relayAction.cancel();
-      const state = liftedState || store.liftedStore.getState();
+      const state = liftedState || store.getState();
       sendingActionId = state.nextActionId;
       toContentScript(
         {
@@ -213,32 +234,13 @@ function __REDUX_DEVTOOLS_EXTENSION__<S, A extends Action<unknown>>(
     },
     latency
   );
+  */
 
-  const monitor = new Monitor(relayState);
+  // const monitor = new Monitor(relayState);
 
-  function exportState() {
-    const liftedState = store.liftedStore.getState();
-    const actionsById = liftedState.actionsById;
-    const payload: A[] = [];
-    liftedState.stagedActionIds.slice(1).forEach((id) => {
-      // if (isFiltered(actionsById[id].action, localFilter)) return;
-      payload.push(actionsById[id].action);
-    });
-    toContentScript(
-      {
-        type: 'EXPORT',
-        payload,
-        committedState: liftedState.committedState,
-        source,
-        instanceId,
-      },
-      serializeState,
-      serializeAction
-    );
-  }
-
+  /*
   const relayAction = throttle(() => {
-    const liftedState = store.liftedStore.getState();
+    const liftedState = store.getState();
     const nextActionId = liftedState.nextActionId;
     const currentActionId = nextActionId - 1;
     const liftedAction = liftedState.actionsById[currentActionId];
@@ -279,6 +281,7 @@ function __REDUX_DEVTOOLS_EXTENSION__<S, A extends Action<unknown>>(
       );
       return;
     }
+    
 
     // Send multiple actions
     const payload = startingFrom(
@@ -322,64 +325,9 @@ function __REDUX_DEVTOOLS_EXTENSION__<S, A extends Action<unknown>>(
       serializeAction
     );
   }, latency);
+  */
 
-  function dispatchRemotely(action: string | CustomAction) {
-    if (config!.features && !config!.features.dispatch) return;
-    try {
-      const result = evalAction(action, actionCreators);
-      (store.initialDispatch || store.dispatch)(result);
-    } catch (e) {
-      toContentScript(
-        {
-          type: 'ERROR',
-          payload: (e as Error).message,
-          source,
-          instanceId,
-        },
-        serializeState,
-        serializeAction
-      );
-    }
-  }
-
-  function importPayloadFrom(state: string | undefined) {
-    if (config!.features && !config!.features.import) return;
-    try {
-      const nextLiftedState = importState<S, A>(state, config!);
-      if (!nextLiftedState) return;
-      store.liftedStore.dispatch({ type: 'IMPORT_STATE', ...nextLiftedState });
-    } catch (e) {
-      toContentScript(
-        {
-          type: 'ERROR',
-          payload: (e as Error).message,
-          source,
-          instanceId,
-        },
-        serializeState,
-        serializeAction
-      );
-    }
-  }
-
-  function dispatchMonitorAction(action: DispatchAction) {
-    const features = config!.features;
-    if (features) {
-      if (
-        !features.jump &&
-        (action.type === 'JUMP_TO_STATE' || action.type === 'JUMP_TO_ACTION')
-      ) {
-        return;
-      }
-      if (!features.skip && action.type === 'TOGGLE_ACTION') return;
-      if (!features.reorder && action.type === 'REORDER_ACTION') return;
-      if (!features.import && action.type === 'IMPORT_STATE') return;
-      if (!features.lock && action.type === 'LOCK_CHANGES') return;
-      if (!features.pause && action.type === 'PAUSE_RECORDING') return;
-    }
-    store.liftedStore.dispatch(action as any);
-  }
-
+  /*
   function onMessage(message: ContentScriptToPageScriptMessage) {
     switch (message.type) {
       case 'DISPATCH':
@@ -442,7 +390,9 @@ function __REDUX_DEVTOOLS_EXTENSION__<S, A extends Action<unknown>>(
         }
     }
   }
+  */
 
+  /*
   const filteredActionIds: number[] = []; // simple circular buffer of non-excluded actions with fixed maxAge-1 length
   const getMaxAge = (
     liftedAction?: LiftedAction<S, A, unknown>,
@@ -477,8 +427,14 @@ function __REDUX_DEVTOOLS_EXTENSION__<S, A extends Action<unknown>>(
     }
     return maxAge;
   };
+  */
 
   function init() {
+    window.__RECORD_REPLAY_ANNOTATION_HOOK__(
+      'redux-devtools-setup',
+      JSON.stringify({ type: 'init', connectionType: 'redux', instanceId })
+    );
+    /*
     setListener(onMessage, instanceId);
     notifyErrors(() => {
       errorOccurred = true;
@@ -505,8 +461,10 @@ function __REDUX_DEVTOOLS_EXTENSION__<S, A extends Action<unknown>>(
       reportId = getUrlParam('remotedev_report');
       if (reportId) openWindow();
     }
+    */
   }
 
+  /*
   function handleChange() {
     if (!monitor.active) return;
     if (!errorOccurred && !monitor.isMonitorAction()) {
@@ -516,7 +474,7 @@ function __REDUX_DEVTOOLS_EXTENSION__<S, A extends Action<unknown>>(
     if (monitor.isPaused() || monitor.isLocked() || monitor.isTimeTraveling()) {
       return;
     }
-    const liftedState = store.liftedStore.getState();
+    const liftedState = store.getState();
     if (
       errorOccurred &&
       !liftedState.computedStates[liftedState.currentStateIndex].error
@@ -525,6 +483,7 @@ function __REDUX_DEVTOOLS_EXTENSION__<S, A extends Action<unknown>>(
     }
     relayState(liftedState);
   }
+  */
 
   const enhance =
     (): StoreEnhancer =>
@@ -535,21 +494,41 @@ function __REDUX_DEVTOOLS_EXTENSION__<S, A extends Action<unknown>>(
         reducer_: Reducer<S2, A2>,
         initialState_?: PreloadedState<S2>
       ) => {
+        const originalStore = next(reducer_, initialState_);
         if (!isAllowed(window.devToolsOptions)) {
-          return next(reducer_, initialState_);
+          return originalStore;
         }
 
-        store = stores[instanceId] = configureStore(
-          next as StoreEnhancerStoreCreator,
-          monitor.reducer,
-          {
-            ...config,
-            maxAge: getMaxAge as any,
-          }
-        )(reducer_, initialState_) as any;
+        const newStore: Store<S2, A2> = {
+          ...originalStore,
+          dispatch: (action: A2) => {
+            const result = originalStore.dispatch(action);
+            saveReplayAnnotation(
+              action,
+              originalStore.getState(),
+              'redux',
+              extractedExtensionConfig,
+              config!
+            );
+            return result;
+          },
+        };
 
-        if (isInIframe()) setTimeout(init, 3000);
-        else init();
+        // @ts-ignore
+        store = stores[instanceId] = newStore;
+
+        // store = stores[instanceId] = configureStore(
+        //   next as StoreEnhancerStoreCreator,
+        //   monitor.reducer,
+        //   {
+        //     ...config,
+        //     maxAge: getMaxAge as any,
+        //   }
+        // )(reducer_, initialState_) as any;
+
+        init();
+        // if (isInIframe()) setTimeout(init, 3000);
+        // else init();
 
         return store;
       };
@@ -566,13 +545,14 @@ declare global {
 
 // noinspection JSAnnotator
 window.__REDUX_DEVTOOLS_EXTENSION__ = __REDUX_DEVTOOLS_EXTENSION__ as any;
-window.__REDUX_DEVTOOLS_EXTENSION__.open = openWindow;
-window.__REDUX_DEVTOOLS_EXTENSION__.notifyErrors = notifyErrors;
-window.__REDUX_DEVTOOLS_EXTENSION__.send = sendMessage;
-window.__REDUX_DEVTOOLS_EXTENSION__.listen = setListener;
-window.__REDUX_DEVTOOLS_EXTENSION__.connect = connect;
-window.__REDUX_DEVTOOLS_EXTENSION__.disconnect = disconnect;
+window.__REDUX_DEVTOOLS_EXTENSION__.open = () => {};
+window.__REDUX_DEVTOOLS_EXTENSION__.notifyErrors = () => {};
+window.__REDUX_DEVTOOLS_EXTENSION__.send = () => {}; // sendMessage;
+window.__REDUX_DEVTOOLS_EXTENSION__.listen = () => {};
+window.__REDUX_DEVTOOLS_EXTENSION__.connect = (config: Config) => null as any; // connect;
+window.__REDUX_DEVTOOLS_EXTENSION__.disconnect = () => {}; // disconnect;
 
+/*
 const preEnhancer =
   (instanceId: number): StoreEnhancer =>
   (next) =>
@@ -590,6 +570,7 @@ const preEnhancer =
         (store.dispatch as any)(...args),
     } as any;
   };
+*/
 
 export type InferComposedStoreExt<StoreEnhancers> = StoreEnhancers extends [
   infer HeadStoreEnhancer,
@@ -608,7 +589,7 @@ const extensionCompose =
     // @ts-ignore FIXME
     return (...args) => {
       const instanceId = generateId(config.instanceId);
-      return [preEnhancer(instanceId), ...funcs].reduceRight(
+      return [...funcs].reduceRight(
         // @ts-ignore FIXME
         (composed, f) => f(composed),
         __REDUX_DEVTOOLS_EXTENSION__({ ...config, instanceId })(...args)

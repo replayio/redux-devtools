@@ -1,7 +1,7 @@
-import mapValues from 'lodash/mapValues';
-import { Action } from 'redux';
-import { LiftedState, PerformAction } from '@redux-devtools/instrument';
-import { LocalFilter } from '@redux-devtools/utils';
+// import mapValues from 'lodash/mapValues';
+import type { Action } from 'redux';
+import type { LiftedState, PerformAction } from '@redux-devtools/instrument';
+import type { LocalFilter } from '@redux-devtools/utils';
 
 export type FilterStateValue =
   | 'DO_NOT_FILTER'
@@ -41,6 +41,7 @@ export function isFiltered<A extends Action<unknown>>(
   );
 }
 
+/*
 function filterActions<A extends Action<unknown>>(
   actionsById: { [p: number]: PerformAction<A> },
   actionSanitizer: ((action: A, id: number) => A) | undefined
@@ -119,6 +120,7 @@ export function filterState<S, A extends Action<unknown>>(
     computedStates: filterStates(state.computedStates, stateSanitizer),
   };
 }
+*/
 
 export interface PartialLiftedState<S, A extends Action<unknown>> {
   readonly actionsById: { [actionId: number]: PerformAction<A> };
@@ -128,7 +130,7 @@ export interface PartialLiftedState<S, A extends Action<unknown>> {
   readonly nextActionId: number;
   readonly committedState?: S;
 }
-
+/*
 export function startingFrom<S, A extends Action<unknown>>(
   sendingActionId: number,
   state: LiftedState<S, A, unknown>,
@@ -192,3 +194,5 @@ export function startingFrom<S, A extends Action<unknown>>(
     nextActionId: state.nextActionId,
   };
 }
+
+*/
