@@ -35,6 +35,9 @@ module.exports = function (env) {
     output: {
       filename: '[name].bundle.js',
     },
+    optimization: {
+      minimize: false,
+    },
     plugins: [
       new webpack.DefinePlugin({
         'process.env.BABEL_ENV': JSON.stringify(process.env.NODE_ENV),
