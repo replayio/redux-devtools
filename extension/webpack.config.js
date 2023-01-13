@@ -8,29 +8,7 @@ module.exports = function (env) {
     mode: env.production ? 'production' : 'development',
     devtool: env.production ? undefined : 'eval-source-map',
     entry: {
-      background: [
-        path.resolve(__dirname, 'src/chromeApiMock'),
-        path.resolve(__dirname, 'src/background/index'),
-      ],
-      options: [
-        path.resolve(__dirname, 'src/chromeApiMock'),
-        path.resolve(__dirname, 'src/options/index'),
-      ],
-      window: [path.resolve(__dirname, 'src/window/index')],
-      remote: [path.resolve(__dirname, 'src/remote/index')],
-      devpanel: [
-        path.resolve(__dirname, 'src/chromeApiMock'),
-        path.resolve(__dirname, 'src/devpanel/index'),
-      ],
-      devtools: path.resolve(__dirname, 'src/devtools/index'),
-      content: [
-        path.resolve(__dirname, 'src/chromeApiMock'),
-        path.resolve(__dirname, 'src/contentScript/index'),
-      ],
       page: path.join(__dirname, 'src/pageScript'),
-      ...(env.production
-        ? {}
-        : { pagewrap: path.resolve(__dirname, 'src/pageScriptWrap') }),
     },
     output: {
       filename: '[name].bundle.js',
