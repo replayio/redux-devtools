@@ -11,13 +11,14 @@ import type Immutable from 'immutable';
 import type { LiftedAction, LiftedState } from '@redux-devtools/instrument';
 import type { Features } from '@redux-devtools/app';
 import type { Options } from '../options/syncOptions';
-import { isFiltered } from './api/filters';
 import generateId from './api/generateInstanceId';
 import {
   getLocalFilter,
+  sendMessage,
+  connect,
+  extractExtensionConfig,
   saveReplayAnnotation,
   Serialize,
-  StructuralPerformAction,
   ConnectResponse,
   ExtractedExtensionConfig,
 } from './api';
@@ -87,7 +88,7 @@ interface ReduxDevtoolsExtension {
   open: () => void;
   notifyErrors: (onError?: () => boolean) => void;
   send: <S, A extends Action<unknown>>(
-    action: StructuralPerformAction<A> | StructuralPerformAction<A>[],
+    action: string | A,
     state: LiftedState<S, A, unknown>,
     config: Config,
     instanceId?: number,
@@ -104,30 +105,20 @@ interface ReduxDevtoolsExtension {
 declare global {
   interface Window {
     devToolsOptions: Options;
-    __REDUX_DEVTOOLS_ANNOTATE_ACTION: (action: any, state: any) => void;
     __RECORD_REPLAY_ANNOTATION_HOOK__: (kind: string, contents: string) => void;
   }
 }
 
 function __REDUX_DEVTOOLS_EXTENSION__<S, A extends Action<unknown>>(
-  config?: Config
+  preConfig: Config = {}
 ): StoreEnhancer {
-  if (typeof config !== 'object') config = {};
+  // if (typeof config !== 'object') config = {};
   if (!window.devToolsOptions) window.devToolsOptions = {} as any;
 
   let store: Store<any, AnyAction>;
-  const instanceId = generateId(config.instanceId);
-  const localFilter = getLocalFilter(config);
-  let { stateSanitizer, actionSanitizer, predicate, latency = 500 } = config;
 
-  const extractedExtensionConfig: ExtractedExtensionConfig = {
-    instanceId,
-    stateSanitizer,
-    actionSanitizer,
-    predicate,
-    localFilter,
-    isFiltered,
-  };
+  const [config, extractedExtensionConfig] = extractExtensionConfig(preConfig);
+  const { instanceId } = extractedExtensionConfig;
 
   function init() {
     window.__RECORD_REPLAY_ANNOTATION_HOOK__(
@@ -179,15 +170,14 @@ declare global {
   }
 }
 
-// TODO reimplement `send()` and `connect()`
 // noinspection JSAnnotator
 window.__REDUX_DEVTOOLS_EXTENSION__ = __REDUX_DEVTOOLS_EXTENSION__ as any;
 window.__REDUX_DEVTOOLS_EXTENSION__.open = () => {};
 window.__REDUX_DEVTOOLS_EXTENSION__.notifyErrors = () => {};
-window.__REDUX_DEVTOOLS_EXTENSION__.send = () => {}; // sendMessage;
+window.__REDUX_DEVTOOLS_EXTENSION__.send = sendMessage;
 window.__REDUX_DEVTOOLS_EXTENSION__.listen = () => {};
-window.__REDUX_DEVTOOLS_EXTENSION__.connect = (config: Config) => null as any; // connect;
-window.__REDUX_DEVTOOLS_EXTENSION__.disconnect = () => {}; // disconnect;
+window.__REDUX_DEVTOOLS_EXTENSION__.connect = connect;
+window.__REDUX_DEVTOOLS_EXTENSION__.disconnect = () => {};
 
 export type InferComposedStoreExt<StoreEnhancers> = StoreEnhancers extends [
   infer HeadStoreEnhancer,

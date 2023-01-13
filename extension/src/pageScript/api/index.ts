@@ -1,17 +1,15 @@
 import type { Options } from 'jsan';
 import type { AnyAction } from 'redux';
 import type { LocalFilter } from '@redux-devtools/utils';
-import { isFiltered, PartialLiftedState } from './filters';
+import { isFiltered } from './filters';
 import generateId from './generateInstanceId';
 import type { Config } from '../index';
 import type { Action } from 'redux';
-import type { LiftedState, PerformAction } from '@redux-devtools/instrument';
-import type { LibConfig } from '@redux-devtools/app';
+import type { LiftedState } from '@redux-devtools/instrument';
 import type {
   ContentScriptToPageScriptMessage,
   ListenerMessage,
 } from '../../contentScript';
-import type { Position } from './openWindow';
 
 const listeners: {
   [instanceId: string]:
@@ -42,173 +40,30 @@ export interface Serialize {
   readonly options?: Options | boolean;
 }
 
-interface InitInstancePageScriptToContentScriptMessage {
-  readonly type: 'INIT_INSTANCE';
-  readonly instanceId: number;
-  readonly source: typeof source;
-}
-
-interface DisconnectMessage {
-  readonly type: 'DISCONNECT';
-  readonly source: typeof source;
-}
-
-interface InitMessage<S, A extends Action<unknown>> {
-  readonly type: 'INIT';
-  readonly payload: string;
-  readonly instanceId: number;
-  readonly source: typeof source;
-  action?: string;
-  name?: string | undefined;
-  liftedState?: LiftedState<S, A, unknown>;
-  libConfig?: LibConfig;
-}
-
-interface SerializedPartialLiftedState {
-  readonly stagedActionIds: readonly number[];
-  readonly currentStateIndex: number;
-  readonly nextActionId: number;
-}
-
-interface SerializedPartialStateMessage {
-  readonly type: 'PARTIAL_STATE';
-  readonly payload: SerializedPartialLiftedState;
-  readonly source: typeof source;
-  readonly instanceId: number;
-  readonly maxAge: number;
-  readonly actionsById: string;
-  readonly computedStates: string;
-  readonly committedState: boolean;
-}
-
-interface SerializedExportMessage {
-  readonly type: 'EXPORT';
-  readonly payload: string;
-  readonly committedState: string | undefined;
-  readonly source: typeof source;
-  readonly instanceId: number;
-}
-
-interface SerializedActionMessage {
-  readonly type: 'ACTION';
-  readonly payload: string;
-  readonly source: typeof source;
-  readonly instanceId: number;
-  readonly action: string;
-  readonly maxAge: number;
-  readonly nextActionId?: number;
-}
-
-interface SerializedStateMessage<S, A extends Action<unknown>> {
-  readonly type: 'STATE';
-  readonly payload: Omit<
-    LiftedState<S, A, unknown>,
-    'actionsById' | 'computedStates' | 'committedState'
-  >;
-  readonly source: typeof source;
-  readonly instanceId: number;
-  readonly libConfig?: LibConfig;
-  readonly actionsById: string;
-  readonly computedStates: string;
-  readonly committedState: boolean;
-}
-
-interface OpenMessage {
-  readonly source: typeof source;
-  readonly type: 'OPEN';
-  readonly position: Position;
-}
-
 export type PageScriptToContentScriptMessageForwardedToMonitors<
   S,
   A extends Action<unknown>
-> =
-  | InitMessage<S, A>
-  | LiftedMessage
-  | SerializedPartialStateMessage
-  | SerializedExportMessage
-  | SerializedActionMessage
-  | SerializedStateMessage<S, A>;
+> = any;
 
 export type PageScriptToContentScriptMessageWithoutDisconnectOrInitInstance<
   S,
   A extends Action<unknown>
-> =
-  | PageScriptToContentScriptMessageForwardedToMonitors<S, A>
-  | ErrorMessage
-  | GetReportMessage
-  | StopMessage
-  | OpenMessage;
+> = any;
 
 export type PageScriptToContentScriptMessageWithoutDisconnect<
   S,
   A extends Action<unknown>
-> =
-  | PageScriptToContentScriptMessageWithoutDisconnectOrInitInstance<S, A>
-  | InitInstancePageScriptToContentScriptMessage
-  | InitInstanceMessage;
+> = any;
 
-export type PageScriptToContentScriptMessage<S, A extends Action<unknown>> =
-  | PageScriptToContentScriptMessageWithoutDisconnect<S, A>
-  | DisconnectMessage;
-
-interface LiftedMessage {
-  readonly type: 'LIFTED';
-  readonly liftedState: { readonly isPaused: boolean | undefined };
-  readonly instanceId: number;
-  readonly source: typeof source;
-}
-
-interface PartialStateMessage<S, A extends Action<unknown>> {
-  readonly type: 'PARTIAL_STATE';
-  readonly payload: PartialLiftedState<S, A>;
-  readonly source: typeof source;
-  readonly instanceId: number;
-  readonly maxAge: number;
-}
-
-interface ExportMessage<S, A extends Action<unknown>> {
-  readonly type: 'EXPORT';
-  readonly payload: readonly A[];
-  readonly committedState: S;
-  readonly source: typeof source;
-  readonly instanceId: number;
-}
+export type PageScriptToContentScriptMessage<
+  S,
+  A extends Action<unknown>
+> = any;
 
 export interface StructuralPerformAction<A extends Action<unknown>> {
   readonly action: A;
   readonly timestamp?: number;
   readonly stack?: string;
-}
-
-type SingleUserAction<A extends Action<unknown>> =
-  | PerformAction<A>
-  | StructuralPerformAction<A>
-  | A;
-type UserAction<A extends Action<unknown>> =
-  | SingleUserAction<A>
-  | readonly SingleUserAction<A>[];
-
-interface ActionMessage<S, A extends Action<unknown>> {
-  readonly type: 'ACTION';
-  readonly payload: S;
-  readonly source: typeof source;
-  readonly instanceId: number;
-  readonly action: UserAction<A>;
-  readonly maxAge: number;
-  readonly nextActionId?: number;
-  readonly name?: string;
-}
-
-interface StateMessage<S, A extends Action<unknown>> {
-  readonly type: 'STATE';
-  readonly payload: LiftedState<S, A, unknown>;
-  readonly source: typeof source;
-  readonly instanceId: number;
-  readonly libConfig?: LibConfig;
-  readonly action?: UserAction<A>;
-  readonly maxAge?: number;
-  readonly name?: string;
 }
 
 export interface ErrorMessage {
@@ -218,38 +73,6 @@ export interface ErrorMessage {
   readonly instanceId: number;
   readonly message?: string | undefined;
 }
-
-interface InitInstanceMessage {
-  readonly type: 'INIT_INSTANCE';
-  readonly payload: undefined;
-  readonly source: typeof source;
-  readonly instanceId: number;
-}
-
-interface GetReportMessage {
-  readonly type: 'GET_REPORT';
-  readonly payload: string;
-  readonly source: typeof source;
-  readonly instanceId: number;
-}
-
-interface StopMessage {
-  readonly type: 'STOP';
-  readonly payload: undefined;
-  readonly source: typeof source;
-  readonly instanceId: number;
-}
-
-type ToContentScriptMessage<S, A extends Action<unknown>> =
-  | LiftedMessage
-  | PartialStateMessage<S, A>
-  | ExportMessage<S, A>
-  | ActionMessage<S, A>
-  | StateMessage<S, A>
-  | ErrorMessage
-  | InitInstanceMessage
-  | GetReportMessage
-  | StopMessage;
 
 export type ExtractedExtensionConfig = Pick<
   Config,
@@ -312,7 +135,32 @@ export interface ConnectResponse {
   error: (payload: string) => void;
 }
 
-export function connect(preConfig: Config): ConnectResponse {
+export function sendMessage<S, A extends Action<unknown>>(
+  action: string | A,
+  state: LiftedState<S, A, unknown>,
+  preConfig: Config = {},
+  instanceId?: number,
+  name?: string
+) {
+  if (!action || !(action as A).type) {
+    action = { type: 'update' } as A;
+  } else if (typeof action === 'string') {
+    action = { type: action } as A;
+  }
+
+  const [config, extractedExtensionConfig] = extractExtensionConfig(preConfig);
+  instanceId = instanceId ?? extractedExtensionConfig.instanceId;
+
+  saveReplayAnnotation(
+    action,
+    state,
+    'generic',
+    extractedExtensionConfig,
+    config
+  );
+}
+
+export function extractExtensionConfig(preConfig: Config) {
   const config = preConfig || {};
   const instanceId = generateId(config.instanceId);
   if (!config.instanceId) config.instanceId = instanceId;
@@ -333,6 +181,13 @@ export function connect(preConfig: Config): ConnectResponse {
     localFilter,
     isFiltered,
   };
+
+  return [config, extractedExtensionConfig] as const;
+}
+
+export function connect(preConfig: Config): ConnectResponse {
+  const [config, extractedExtensionConfig] = extractExtensionConfig(preConfig);
+  const { instanceId } = extractedExtensionConfig;
 
   const subscribe = <S, A extends Action<unknown>>(
     listener: (message: ListenerMessage<S, A>) => void
