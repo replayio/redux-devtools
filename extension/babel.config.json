@@ -1,6 +1,6 @@
 {
   "presets": [
-    ["@babel/preset-env", { "targets": "defaults" }],
+    ["@babel/preset-env", { "targets": { "chrome": "91" } }],
     "@babel/preset-react",
     "@babel/preset-typescript"
   ]
