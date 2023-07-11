@@ -1,82 +1,32 @@
-import {
-  ActionCreatorObject,
-  evalAction,
-  getActionsArray,
-  getLocalFilter,
-} from '@redux-devtools/utils';
-import throttle from 'lodash/throttle';
-import {
+import type { AnyAction, Store } from 'redux';
+import type {
   Action,
   ActionCreator,
-  Dispatch,
   PreloadedState,
   Reducer,
   StoreEnhancer,
   StoreEnhancerStoreCreator,
 } from 'redux';
-import Immutable from 'immutable';
-import {
-  EnhancedStore,
-  LiftedAction,
-  LiftedState,
-  PerformAction,
-} from '@redux-devtools/instrument';
-import {
-  CustomAction,
-  DispatchAction,
-  LibConfig,
-  Features,
-} from '@redux-devtools/app';
-import configureStore, { getUrlParam } from './enhancerStore';
-import { isAllowed, Options } from '../options/syncOptions';
-import Monitor from './Monitor';
-import {
-  noFiltersApplied,
-  isFiltered,
-  filterState,
-  startingFrom,
-} from './api/filters';
-import notifyErrors from './api/notifyErrors';
-import importState from './api/importState';
-import openWindow, { Position } from './api/openWindow';
+import type Immutable from 'immutable';
+import type { LiftedAction, LiftedState } from '@redux-devtools/instrument';
+import type { Features } from '@redux-devtools/app';
+import type { Options } from '../options/syncOptions';
 import generateId from './api/generateInstanceId';
 import {
-  toContentScript,
+  getLocalFilter,
   sendMessage,
-  setListener,
   connect,
-  disconnect,
-  isInIframe,
-  getSerializeParameter,
+  extractExtensionConfig,
+  saveReplayAnnotation,
   Serialize,
-  StructuralPerformAction,
   ConnectResponse,
+  ExtractedExtensionConfig,
 } from './api';
 import type { ContentScriptToPageScriptMessage } from '../contentScript';
 
-type EnhancedStoreWithInitialDispatch<
-  S,
-  A extends Action<unknown>,
-  MonitorState
-> = EnhancedStore<S, A, MonitorState> & { initialDispatch: Dispatch<A> };
-
-const source = '@devtools-page';
 let stores: {
-  [K in string | number]: EnhancedStoreWithInitialDispatch<
-    unknown,
-    Action<unknown>,
-    unknown
-  >;
+  [K in string | number]: Store;
 } = {};
-let reportId: string | null | undefined;
-
-function deprecateParam(oldParam: string, newParam: string) {
-  /* eslint-disable no-console */
-  console.warn(
-    `${oldParam} parameter is deprecated, use ${newParam} instead: https://github.com/reduxjs/redux-devtools/blob/main/extension/docs/API/Arguments.md`
-  );
-  /* eslint-enable no-console */
-}
 
 export interface SerializeWithImmutable extends Serialize {
   readonly immutable?: typeof Immutable;
@@ -135,10 +85,10 @@ export interface Config extends ConfigWithExpandedMaxAge {
 
 interface ReduxDevtoolsExtension {
   (config?: Config): StoreEnhancer;
-  open: (position?: Position) => void;
+  open: () => void;
   notifyErrors: (onError?: () => boolean) => void;
   send: <S, A extends Action<unknown>>(
-    action: StructuralPerformAction<A> | StructuralPerformAction<A>[],
+    action: string | A,
     state: LiftedState<S, A, unknown>,
     config: Config,
     instanceId?: number,
@@ -155,375 +105,26 @@ interface ReduxDevtoolsExtension {
 declare global {
   interface Window {
     devToolsOptions: Options;
+    __RECORD_REPLAY_ANNOTATION_HOOK__: (kind: string, contents: string) => void;
   }
 }
 
 function __REDUX_DEVTOOLS_EXTENSION__<S, A extends Action<unknown>>(
-  config?: Config
+  preConfig: Config = {}
 ): StoreEnhancer {
-  /* eslint-disable no-param-reassign */
-  if (typeof config !== 'object') config = {};
-  /* eslint-enable no-param-reassign */
+  // if (typeof config !== 'object') config = {};
   if (!window.devToolsOptions) window.devToolsOptions = {} as any;
 
-  let store: EnhancedStoreWithInitialDispatch<S, A, unknown>;
-  let errorOccurred = false;
-  let maxAge: number | undefined;
-  let actionCreators: readonly ActionCreatorObject[];
-  let sendingActionId = 1;
-  const instanceId = generateId(config.instanceId);
-  const localFilter = getLocalFilter(config);
-  const serializeState = getSerializeParameter(config);
-  const serializeAction = getSerializeParameter(config);
-  let { stateSanitizer, actionSanitizer, predicate, latency = 500 } = config;
+  let store: Store<any, AnyAction>;
 
-  // Deprecate actionsWhitelist and actionsBlacklist
-  if (config.actionsWhitelist) {
-    deprecateParam('actionsWhiteList', 'actionsAllowlist');
-  }
-  if (config.actionsBlacklist) {
-    deprecateParam('actionsBlacklist', 'actionsDenylist');
-  }
-
-  const relayState = throttle(
-    (
-      liftedState?: LiftedState<S, A, unknown> | undefined,
-      libConfig?: LibConfig
-    ) => {
-      relayAction.cancel();
-      const state = liftedState || store.liftedStore.getState();
-      sendingActionId = state.nextActionId;
-      toContentScript(
-        {
-          type: 'STATE',
-          payload: filterState(
-            state,
-            localFilter,
-            stateSanitizer,
-            actionSanitizer,
-            predicate
-          ),
-          source,
-          instanceId,
-          libConfig,
-        },
-        serializeState,
-        serializeAction
-      );
-    },
-    latency
-  );
-
-  const monitor = new Monitor(relayState);
-
-  function exportState() {
-    const liftedState = store.liftedStore.getState();
-    const actionsById = liftedState.actionsById;
-    const payload: A[] = [];
-    liftedState.stagedActionIds.slice(1).forEach((id) => {
-      // if (isFiltered(actionsById[id].action, localFilter)) return;
-      payload.push(actionsById[id].action);
-    });
-    toContentScript(
-      {
-        type: 'EXPORT',
-        payload,
-        committedState: liftedState.committedState,
-        source,
-        instanceId,
-      },
-      serializeState,
-      serializeAction
-    );
-  }
-
-  const relayAction = throttle(() => {
-    const liftedState = store.liftedStore.getState();
-    const nextActionId = liftedState.nextActionId;
-    const currentActionId = nextActionId - 1;
-    const liftedAction = liftedState.actionsById[currentActionId];
-
-    // Send a single action
-    if (sendingActionId === currentActionId) {
-      sendingActionId = nextActionId;
-      const action = liftedAction.action;
-      const computedStates = liftedState.computedStates;
-      if (
-        isFiltered(action, localFilter) ||
-        (predicate &&
-          !predicate(computedStates[computedStates.length - 1].state, action))
-      ) {
-        return;
-      }
-      const state =
-        liftedState.computedStates[liftedState.computedStates.length - 1].state;
-      toContentScript(
-        {
-          type: 'ACTION',
-          payload: !stateSanitizer
-            ? state
-            : stateSanitizer(state, nextActionId - 1),
-          source,
-          instanceId,
-          action: !actionSanitizer
-            ? liftedState.actionsById[nextActionId - 1]
-            : actionSanitizer(
-                liftedState.actionsById[nextActionId - 1].action,
-                nextActionId - 1
-              ),
-          maxAge: getMaxAge(),
-          nextActionId,
-        },
-        serializeState,
-        serializeAction
-      );
-      return;
-    }
-
-    // Send multiple actions
-    const payload = startingFrom(
-      sendingActionId,
-      liftedState,
-      localFilter,
-      stateSanitizer,
-      actionSanitizer,
-      predicate
-    );
-    sendingActionId = nextActionId;
-    if (typeof payload === 'undefined') return;
-    if ('skippedActionIds' in payload) {
-      toContentScript(
-        {
-          type: 'STATE',
-          payload: filterState(
-            payload,
-            localFilter,
-            stateSanitizer,
-            actionSanitizer,
-            predicate
-          ),
-          source,
-          instanceId,
-        },
-        serializeState,
-        serializeAction
-      );
-      return;
-    }
-    toContentScript(
-      {
-        type: 'PARTIAL_STATE',
-        payload,
-        source,
-        instanceId,
-        maxAge: getMaxAge(),
-      },
-      serializeState,
-      serializeAction
-    );
-  }, latency);
-
-  function dispatchRemotely(action: string | CustomAction) {
-    if (config!.features && !config!.features.dispatch) return;
-    try {
-      const result = evalAction(action, actionCreators);
-      (store.initialDispatch || store.dispatch)(result);
-    } catch (e) {
-      toContentScript(
-        {
-          type: 'ERROR',
-          payload: (e as Error).message,
-          source,
-          instanceId,
-        },
-        serializeState,
-        serializeAction
-      );
-    }
-  }
-
-  function importPayloadFrom(state: string | undefined) {
-    if (config!.features && !config!.features.import) return;
-    try {
-      const nextLiftedState = importState<S, A>(state, config!);
-      if (!nextLiftedState) return;
-      store.liftedStore.dispatch({ type: 'IMPORT_STATE', ...nextLiftedState });
-    } catch (e) {
-      toContentScript(
-        {
-          type: 'ERROR',
-          payload: (e as Error).message,
-          source,
-          instanceId,
-        },
-        serializeState,
-        serializeAction
-      );
-    }
-  }
-
-  function dispatchMonitorAction(action: DispatchAction) {
-    const features = config!.features;
-    if (features) {
-      if (
-        !features.jump &&
-        (action.type === 'JUMP_TO_STATE' || action.type === 'JUMP_TO_ACTION')
-      ) {
-        return;
-      }
-      if (!features.skip && action.type === 'TOGGLE_ACTION') return;
-      if (!features.reorder && action.type === 'REORDER_ACTION') return;
-      if (!features.import && action.type === 'IMPORT_STATE') return;
-      if (!features.lock && action.type === 'LOCK_CHANGES') return;
-      if (!features.pause && action.type === 'PAUSE_RECORDING') return;
-    }
-    store.liftedStore.dispatch(action as any);
-  }
-
-  function onMessage(message: ContentScriptToPageScriptMessage) {
-    switch (message.type) {
-      case 'DISPATCH':
-        dispatchMonitorAction(message.payload);
-        return;
-      case 'ACTION':
-        dispatchRemotely(message.payload);
-        return;
-      case 'IMPORT':
-        importPayloadFrom(message.state);
-        return;
-      case 'EXPORT':
-        exportState();
-        return;
-      case 'UPDATE':
-        relayState();
-        return;
-      case 'START':
-        monitor.start(true);
-        if (!actionCreators && config!.actionCreators) {
-          actionCreators = getActionsArray(config!.actionCreators);
-        }
-        relayState(undefined, {
-          name: config!.name || document.title,
-          actionCreators: JSON.stringify(actionCreators),
-          features: config!.features,
-          serialize: !!config!.serialize,
-          type: 'redux',
-        });
-
-        if (reportId) {
-          toContentScript(
-            {
-              type: 'GET_REPORT',
-              payload: reportId,
-              source,
-              instanceId,
-            },
-            serializeState,
-            serializeAction
-          );
-          reportId = null;
-        }
-        return;
-      case 'STOP':
-        monitor.stop();
-        relayAction.cancel();
-        relayState.cancel();
-        if (!message.failed) {
-          toContentScript(
-            {
-              type: 'STOP',
-              payload: undefined,
-              source,
-              instanceId,
-            },
-            serializeState,
-            serializeAction
-          );
-        }
-    }
-  }
-
-  const filteredActionIds: number[] = []; // simple circular buffer of non-excluded actions with fixed maxAge-1 length
-  const getMaxAge = (
-    liftedAction?: LiftedAction<S, A, unknown>,
-    liftedState?: LiftedState<S, A, unknown> | undefined
-  ) => {
-    let m = (config && config.maxAge) || window.devToolsOptions.maxAge || 50;
-    if (
-      !liftedAction ||
-      noFiltersApplied(localFilter) ||
-      !(liftedAction as PerformAction<A>).action
-    ) {
-      return m;
-    }
-    if (!maxAge || maxAge < m) maxAge = m; // it can be modified in process on options page
-    if (isFiltered((liftedAction as PerformAction<A>).action, localFilter)) {
-      // TODO: check also predicate && !predicate(state, action) with current state
-      maxAge++;
-    } else {
-      filteredActionIds.push(liftedState!.nextActionId);
-      if (filteredActionIds.length >= m) {
-        const stagedActionIds = liftedState!.stagedActionIds;
-        let i = 1;
-        while (
-          maxAge > m &&
-          filteredActionIds.indexOf(stagedActionIds[i]) === -1
-        ) {
-          maxAge--;
-          i++;
-        }
-        filteredActionIds.shift();
-      }
-    }
-    return maxAge;
-  };
+  const [config, extractedExtensionConfig] = extractExtensionConfig(preConfig);
+  const { instanceId } = extractedExtensionConfig;
 
   function init() {
-    setListener(onMessage, instanceId);
-    notifyErrors(() => {
-      errorOccurred = true;
-      const state = store.liftedStore.getState();
-      if (state.computedStates[state.currentStateIndex].error) {
-        relayState(state);
-      }
-      return true;
-    });
-
-    toContentScript(
-      {
-        type: 'INIT_INSTANCE',
-        payload: undefined,
-        source,
-        instanceId,
-      },
-      serializeState,
-      serializeAction
+    window.__RECORD_REPLAY_ANNOTATION_HOOK__(
+      'redux-devtools-setup',
+      JSON.stringify({ type: 'init', connectionType: 'redux', instanceId })
     );
-    store.subscribe(handleChange);
-
-    if (typeof reportId === 'undefined') {
-      reportId = getUrlParam('remotedev_report');
-      if (reportId) openWindow();
-    }
-  }
-
-  function handleChange() {
-    if (!monitor.active) return;
-    if (!errorOccurred && !monitor.isMonitorAction()) {
-      relayAction();
-      return;
-    }
-    if (monitor.isPaused() || monitor.isLocked() || monitor.isTimeTraveling()) {
-      return;
-    }
-    const liftedState = store.liftedStore.getState();
-    if (
-      errorOccurred &&
-      !liftedState.computedStates[liftedState.currentStateIndex].error
-    ) {
-      errorOccurred = false;
-    }
-    relayState(liftedState);
   }
 
   const enhance =
@@ -535,22 +136,27 @@ function __REDUX_DEVTOOLS_EXTENSION__<S, A extends Action<unknown>>(
         reducer_: Reducer<S2, A2>,
         initialState_?: PreloadedState<S2>
       ) => {
-        if (!isAllowed(window.devToolsOptions)) {
-          return next(reducer_, initialState_);
-        }
+        const originalStore = next(reducer_, initialState_);
 
-        store = stores[instanceId] = configureStore(
-          next as StoreEnhancerStoreCreator,
-          monitor.reducer,
-          {
-            ...config,
-            maxAge: getMaxAge as any,
-          }
-        )(reducer_, initialState_) as any;
+        const newStore: Store<S2, A2> = {
+          ...originalStore,
+          dispatch: (action: A2) => {
+            const result = originalStore.dispatch(action);
+            saveReplayAnnotation(
+              action,
+              originalStore.getState(),
+              'redux',
+              extractedExtensionConfig,
+              config!
+            );
+            return result;
+          },
+        };
 
-        if (isInIframe()) setTimeout(init, 3000);
-        else init();
+        // @ts-ignore
+        store = stores[instanceId] = newStore;
 
+        init();
         return store;
       };
     };
@@ -566,30 +172,12 @@ declare global {
 
 // noinspection JSAnnotator
 window.__REDUX_DEVTOOLS_EXTENSION__ = __REDUX_DEVTOOLS_EXTENSION__ as any;
-window.__REDUX_DEVTOOLS_EXTENSION__.open = openWindow;
-window.__REDUX_DEVTOOLS_EXTENSION__.notifyErrors = notifyErrors;
+window.__REDUX_DEVTOOLS_EXTENSION__.open = () => {};
+window.__REDUX_DEVTOOLS_EXTENSION__.notifyErrors = () => {};
 window.__REDUX_DEVTOOLS_EXTENSION__.send = sendMessage;
-window.__REDUX_DEVTOOLS_EXTENSION__.listen = setListener;
+window.__REDUX_DEVTOOLS_EXTENSION__.listen = () => {};
 window.__REDUX_DEVTOOLS_EXTENSION__.connect = connect;
-window.__REDUX_DEVTOOLS_EXTENSION__.disconnect = disconnect;
-
-const preEnhancer =
-  (instanceId: number): StoreEnhancer =>
-  (next) =>
-  (reducer, preloadedState) => {
-    const store = next(reducer, preloadedState);
-
-    if (stores[instanceId]) {
-      (stores[instanceId].initialDispatch as any) = store.dispatch;
-    }
-
-    return {
-      ...store,
-      dispatch: (...args: any[]) =>
-        !window.__REDUX_DEVTOOLS_EXTENSION_LOCKED__ &&
-        (store.dispatch as any)(...args),
-    } as any;
-  };
+window.__REDUX_DEVTOOLS_EXTENSION__.disconnect = () => {};
 
 export type InferComposedStoreExt<StoreEnhancers> = StoreEnhancers extends [
   infer HeadStoreEnhancer,
@@ -608,7 +196,7 @@ const extensionCompose =
     // @ts-ignore FIXME
     return (...args) => {
       const instanceId = generateId(config.instanceId);
-      return [preEnhancer(instanceId), ...funcs].reduceRight(
+      return [...funcs].reduceRight(
         // @ts-ignore FIXME
         (composed, f) => f(composed),
         __REDUX_DEVTOOLS_EXTENSION__({ ...config, instanceId })(...args)
